@@ -1,0 +1,15 @@
+function reward =Reward_Function(error,rpm,alpha,beta,alpha_prev,beta_prev)
+
+reward = ...
+    -1.0*abs(error) ...                     % tracking error
+    -0.1*error^2 ...
+    -4.0*max(0,rpm-900) ...                 % overshoot penalty
+    -0.1*abs(alpha-alpha_prev) ...          % smooth alpha
+    -0.1*abs(beta-beta_prev);               % smooth beta
+
+
+if abs(error) < 0.5
+    reward = reward + 3;
+end
+end
+

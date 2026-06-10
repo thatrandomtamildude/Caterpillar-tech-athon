@@ -1,0 +1,92 @@
+
+obsInfo = rlNumericSpec([2 1]);
+obsInfo.Name = "obs";
+
+actInfo = rlNumericSpec([2 1], ...
+    LowerLimit=[0.5; 0.5], ...
+    UpperLimit=[2.0; 2.0]);
+actInfo.Name = "action";
+
+
+actorNet = [
+    featureInputLayer(2, Name="obs")
+    fullyConnectedLayer(256)
+    reluLayer
+    fullyConnectedLayer(256)
+    reluLayer
+    fullyConnectedLayer(128)
+    reluLayer
+    fullyConnectedLayer(2)
+    tanhLayer(Name="tanh_out")
+    scalingLayer(Name="scale_out", Scale=0.75, Bias=1.25)
+];
+
+actor = rlContinuousDeterministicActor( ...
+    actorNet, obsInfo, actInfo, ...
+    ObservationInputNames="obs");
+
+%% === CRITIC NETWORK (shared architecture for critic1 & critic2) ===
+statePath = [
+    featureInputLayer(2, Name="obs")
+    fullyConnectedLayer(256)
+    reluLayer
+    fullyConnectedLayer(256, Name="state_fc2")
+    reluLayer(Name="relu_state")
+];
+
+actionPath = [
+    featureInputLayer(2, Name="action")
+    fullyConnectedLayer(256)
+    reluLayer
+    fullyConnectedLayer(256, Name="act_fc2")
+    reluLayer(Name="relu_act")
+];
+
+commonPath = [
+    concatenationLayer(1, 2, Name="concat")
+    fullyConnectedLayer(256)
+    reluLayer
+    fullyConnectedLayer(128)
+    reluLayer
+    fullyConnectedLayer(1)
+];
+
+criticNet = layerGraph();
+criticNet = addLayers(criticNet, statePath);
+criticNet = addLayers(criticNet, actionPath);
+criticNet = addLayers(criticNet, commonPath);
+criticNet = connectLayers(criticNet, "relu_state", "concat/in1");
+criticNet = connectLayers(criticNet, "relu_act",   "concat/in2");
+
+critic1 = rlQValueFunction( ...
+    criticNet, obsInfo, actInfo, ...
+    ObservationInputNames="obs", ActionInputNames="action");
+
+critic2 = rlQValueFunction( ...
+    criticNet, obsInfo, actInfo, ...
+    ObservationInputNames="obs", ActionInputNames="action");
+
+%% === TD3 AGENT OPTIONS ===
+agentOpts = rlTD3AgentOptions;
+agentOpts.SampleTime                        = 1;
+agentOpts.DiscountFactor                    = 0.99;
+agentOpts.PolicyUpdateFrequency             = 2;
+agentOpts.TargetSmoothFactor                = 5e-3;
+agentOpts.ActorOptimizerOptions.LearnRate   = 1e-4;
+agentOpts.CriticOptimizerOptions(1).LearnRate = 3e-4;
+agentOpts.CriticOptimizerOptions(2).LearnRate = 3e-4;
+
+%% === CREATE AGENT ===
+TheTD3Brain = rlTD3Agent(actor, [critic1 critic2], agentOpts);
+
+
+
+
+trainOpts = rlTrainingOptions( ...
+    MaxEpisodes=100, ...
+    MaxStepsPerEpisode=1000, ...
+    ScoreAveragingWindowLength=20, ...
+    StopTrainingCriteria="EpisodeCount", ...
+    StopTrainingValue=100, ...
+    Verbose=true, ...
+    Plots="training-progress");
